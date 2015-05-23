@@ -1,0 +1,171 @@
+---
+title: "Analysis of severe weather events across US with Tornado and Floor having greatest impact to population and economy"
+output: 
+  html_document:
+    keep_md: true
+---
+
+
+
+## Synopsis
+
+This report uses data collected from NOAA Storm Database from year 1950 to 2011. The objective is to analyse the data on which severe weather events across US are most harmful to population health or have the greatest economic consequences. It will assist the respective agency to prioritize resources and prepare accordingly for different types of weather events. 
+
+In summary, Tornado ranks the highest weather event that causes the greatest fatality and injury count thus becoming the most harmful event to population while Flood causes the highest property and crop damages thus resulting in the most impact to economy.
+
+
+## Data Processing
+
+Here's the script to download and extract the storm dataset
+
+```{r}
+filename<-"repdata-data-StormData.csv.bz2"
+if (!file.exists(filename)){
+  fileUrl <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+
+  download.file(fileUrl, destfile="./repdata-data-StormData.csv.bz2") 
+
+  #install.packages("R.utils")
+  library(R.utils)
+  bunzip2("repdata-data-StormData.csv.bz2", remove = FALSE)
+}
+
+```
+
+Here's a sample of the weather events dataset
+
+
+```{r}
+txn <- read.csv("repdata-data-StormData.csv")
+head(txn,10)
+str(txn)
+#summary(txn)
+```
+
+
+## Results
+
+Which types of events are most harmful to population health? 
+
+We will first group the fatality and injury count and select the top 10 eent
+
+```{r}
+#retrieve the number of fatalities and injuries by event
+fatal <- aggregate(FATALITIES ~ EVTYPE, data = txn, FUN = sum)
+injury <- aggregate(INJURIES ~ EVTYPE, data = txn, FUN = sum)
+
+#choose top 10 events for each category
+fatal10 <- fatal[order(-fatal$FATALITIES), ][1:10, ]
+injury10 <- injury[order(-injury$INJURIES), ][1:10, ]
+
+#combine to a dataset
+storm_event <- data.frame(EVTYPE=unique(txn$EVTYPE))
+txn_harmful <- merge(storm_event, fatal10, by="EVTYPE",all.x=T)
+txn_harmful <- merge(txn_harmful, injury10, by="EVTYPE",all.x=T)
+txn_harmful <- subset(txn_harmful, !is.na(FATALITIES)|!is.na(INJURIES))   
+txn_harmful[is.na(txn_harmful$FATALITIES)==TRUE,2]<-0
+txn_harmful[is.na(txn_harmful$INJURIES)==TRUE,3]<-0
+
+#transpose to category
+library(reshape2)
+txn_harmful <- melt(txn_harmful, id=c("EVTYPE"))
+colnames(txn_harmful)<-c("EVTYPE","CATEGORY","COUNT")
+
+#convert to character
+txn_harmful$EVTYPE <- as.character(txn_harmful$EVTYPE)
+
+#plot histogram
+library(ggplot2)
+ggplot(txn_harmful, aes(x=EVTYPE,y=COUNT)) +
+  geom_bar(stat="identity", color = "blue",fill="blue") +
+  labs(title = "Top 10 severe weather events over the years") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  facet_wrap(~CATEGORY) +
+  ylab("Number of fatalities and injuries")
+```
+
+From both graphs, Tornado ranks the highest event in terms of highest fatality and injury count.
+
+
+Which types of events have the greatest economic consequences?
+
+```{r}
+
+#update for property damage (Refer to Page 12 of the document)
+table(txn$PROPDMGEXP)
+
+txn$PROPEXP <- 0 #applies to those PROPDMGEXP with -, ?, +, 0
+txn$PROPEXP[txn$PROPDMGEXP == "1"] <- 10
+txn$PROPEXP[txn$PROPDMGEXP == "2"] <- 100
+txn$PROPEXP[txn$PROPDMGEXP == "h"] <- 100 #hundreds
+txn$PROPEXP[txn$PROPDMGEXP == "H"] <- 100 #hundreds
+txn$PROPEXP[txn$PROPDMGEXP == "3"] <- 1000
+txn$PROPEXP[txn$PROPDMGEXP == "K"] <- 1000  #thousands
+txn$PROPEXP[txn$PROPDMGEXP == "4"] <- 10000
+txn$PROPEXP[txn$PROPDMGEXP == "5"] <- 1e+05
+txn$PROPEXP[txn$PROPDMGEXP == "6"] <- 1e+06
+txn$PROPEXP[txn$PROPDMGEXP == "M"] <- 1e+06 #millions
+txn$PROPEXP[txn$PROPDMGEXP == "m"] <- 1e+06 #millions
+txn$PROPEXP[txn$PROPDMGEXP == "7"] <- 1e+07
+txn$PROPEXP[txn$PROPDMGEXP == "8"] <- 1e+08
+txn$PROPEXP[txn$PROPDMGEXP == "B"] <- 1e+09 #billions
+
+#compute property damage value
+txn$PROPDMGVAL <- txn$PROPDMG * txn$PROPEXP
+
+
+#update for crops damage
+table(txn$CROPDMGEXP)
+txn$CROPEXP <- 0 #applies to those CROPDMGEXP with ?, 0
+
+txn$CROPEXP[txn$CROPDMGEXP == "2"] <- 100
+txn$CROPEXP[txn$CROPDMGEXP == "k"] <- 1000
+txn$CROPEXP[txn$CROPDMGEXP == "K"] <- 1000
+txn$CROPEXP[txn$CROPDMGEXP == "M"] <- 1e+06
+txn$CROPEXP[txn$CROPDMGEXP == "m"] <- 1e+06
+txn$CROPEXP[txn$CROPDMGEXP == "B"] <- 1e+09
+
+#compute crop damage value
+txn$CROPDMGVAL <- txn$CROPDMG * txn$CROPEXP
+
+
+#retrieve the number of crop damages by category
+property <- aggregate(PROPDMGVAL ~ EVTYPE, data = txn, FUN = sum)
+crop <- aggregate(CROPDMGVAL ~ EVTYPE, data = txn, FUN = sum)
+
+#choose top 10 events for each category
+property10 <- property[order(-property$PROPDMGVAL), ][1:10, ]
+crop10 <- crop[order(-crop$CROPDMGVAL), ][1:10, ]
+
+
+#combine to a dataset
+#storm_event <- data.frame(EVTYPE=unique(txn$EVTYPE))
+txn_damaage <- merge(storm_event, property10, by="EVTYPE",all.x=T)
+txn_damaage <- merge(txn_damaage, crop10, by="EVTYPE",all.x=T)
+txn_damaage <- subset(txn_damaage, !is.na(PROPDMGVAL)|!is.na(CROPDMGVAL))   
+txn_damaage[is.na(txn_damaage$PROPDMGVAL)==TRUE,2]<-0
+txn_damaage[is.na(txn_damaage$CROPDMGVAL)==TRUE,3]<-0
+
+#transpose to category
+library(reshape2)
+txn_damaage <- melt(txn_damaage, id=c("EVTYPE"))
+colnames(txn_damaage)<-c("EVTYPE","CATEGORY","COUNT")
+
+#convert to character
+txn_damaage$EVTYPE <- as.character(txn_damaage$EVTYPE)
+
+#plot histogram
+#library(ggplot2)
+ggplot(txn_damaage, aes(x=EVTYPE,y=COUNT)) +
+  geom_bar(stat="identity", color = "blue",fill="blue") +
+  labs(title = "Top 10 severe weather events over the years") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  facet_wrap(~CATEGORY) +
+  ylab("Number of property and crop damages")
+
+```
+
+From both graphs, Flood causes the most number of property and crop damages
+
+
+```
